@@ -1,0 +1,111 @@
+module LendAMoney where
+
+import DA.Date
+
+type LoanAccountId = ContractId LoanAccount
+type LoanAccountKey = (Party, Party)
+
+data BorrowerDetails = BorrowerDetails
+    with
+        name : Text
+        address : Text
+        mobile_number : Text
+        email : Text
+        marital_status : Text
+        monthly_salary : Decimal
+        job_status : Text
+        company_name : Text
+    deriving (Show, Eq)
+
+template LoanAccount
+    with
+        lender : Party
+        borrower : Party
+        balance : Decimal
+        loan_status : Text
+        details : BorrowerDetails
+    where
+        signatory lender, borrower
+        ensure lender /= borrower
+
+        key (lender, borrower) : LoanAccountKey
+        maintainer key._1
+
+        nonconsuming choice GetBorrowerDetails : BorrowerDetails
+            controller lender
+            do
+                return(details)
+        choice Borrow : LoanAccountId
+            with
+                amount : Decimal
+            controller borrower
+            do
+                assertMsg "Exceeds the loanable amount." ( amount > details.monthly_salary )
+                time <- getTime
+                let newDateTime = toDateUTC time
+                create Transactions with credit = amount, balance = balance + amount, timestamp = newDateTime, ..
+                create LoanAccount with balance = balance + amount, ..         
+        choice Pay: LoanAccountId
+            with
+                amount : Decimal
+            controller borrower
+            do 
+                assertMsg "Invalid payment" (amount >= 0.0)
+                time <- getTime
+                let newDateTime = toDateUTC time
+                create Transactions with credit = amount, balance = balance - amount, timestamp = newDateTime, ..
+                create LoanAccount with balance = balance - amount, ..         
+template ApplyLoan
+    with
+        borrower : Party
+        lender : Party
+        details : BorrowerDetails
+        loan_amount : Decimal
+    where
+        observer lender
+        signatory borrower
+        ensure loan_amount < details.monthly_salary
+        choice ApproveLoan : LoanAccountId
+            with
+                loan_status : Text
+            controller lender
+            do
+                time <-getTime
+                let newDateTime = toDateUTC time
+                create Transactions with credit = loan_amount, balance = loan_amount, timestamp = newDateTime, ..
+                create LoanAccount with balance = loan_amount, ..
+        choice RejectLoan : ContractId RejectedLoan
+            with
+                loan_status : Text
+                reason : Text
+            controller lender
+            do
+                create RejectedLoan with ..
+
+template RejectedLoan
+    with
+        borrower : Party
+        lender : Party
+        loan_status : Text
+        reason : Text
+        details : BorrowerDetails
+    where
+        signatory borrower, lender
+        choice ReapplyLoan : ContractId ApplyLoan
+            with
+                loan_amount : Decimal
+            controller borrower
+            do
+                create ApplyLoan with ..    
+
+template Transactions
+    with
+        timestamp : Date
+        lender : Party
+        borrower : Party
+        credit : Decimal
+        balance : Decimal
+    where
+        ensure lender /= borrower
+        signatory lender, borrower
+

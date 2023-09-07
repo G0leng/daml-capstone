@@ -1,0 +1,20 @@
+module Main where
+
+import LendAMoney
+import Daml.Script
+
+setup : Script ()
+setup = script do
+-- lender_setup_begin
+gcash <- allocatePartyWithHint "GCash" (PartyIdHint "GCash")
+gcashId <- validateUserId "gcash"
+createUser (User gcashId (Some gcash)) [CanActAs gcash]
+--borrower_setup_begin
+bert <- allocatePartyWithHint "Bert Ing" (PartyIdHint "Bert")
+kali <- allocatePartyWithHint "Kali Bebe" (PartyIdHint "Kali")
+bertId <- validateUserId "bert"
+kaliId <- validateUserId "kali"
+createUser (User bertId (Some bert)) [CanActAs bert]
+createUser (User kaliId (Some kali)) [CanActAs kali]
+
+pure()
