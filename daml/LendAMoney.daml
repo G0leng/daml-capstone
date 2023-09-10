@@ -1,6 +1,6 @@
 module LendAMoney where
 
-import DA.Date
+import DA.Date(toDateUTC)
 
 type LoanAccountId = ContractId LoanAccount
 type LoanAccountKey = (Party, Party)
@@ -15,6 +15,7 @@ data BorrowerDetails = BorrowerDetails
         monthly_salary : Decimal
         job_status : Text
         company_name : Text
+        agreeToEvaluation : Bool
     deriving (Show, Eq)
 
 template LoanAccount
@@ -25,8 +26,7 @@ template LoanAccount
         interest : Decimal
         balance : Decimal
         term : Int
-        monthly_installment : Decimal
-        
+        monthly_installment : Decimal    
         loan_status : Text
         details : BorrowerDetails
     where
@@ -45,7 +45,8 @@ template LoanAccount
                 amount : Decimal
             controller borrower
             do
-                assertMsg "Exceeds the loanable amount." ( balance > details.monthly_salary )
+                assertMsg "Pay your remaining loan balance to be able to apply for another loan." (balance <= 0.0) 
+                assertMsg "Exceeds the loanable amount." (amount < details.monthly_salary )
                 time <- getTime
                 let newDateTime = toDateUTC time
                 create Transactions with payment = amount, balance = balance + amount, timestamp = newDateTime, ..
@@ -56,19 +57,20 @@ template LoanAccount
             controller borrower
             do 
                 assertMsg "Invalid payment" (amount > 0.0)
+                assertMsg "Should be equal to or greater than minimum monthly installemnt" (amount >= monthly_installment)
                 time <- getTime
                 let newDateTime = toDateUTC time
                 create Transactions with payment = amount, balance = balance - amount, timestamp = newDateTime, ..
                 create LoanAccount with balance = balance - amount, ..         
+
 template ApplyLoan
     with
         borrower : Party
         lender : Party
         details : BorrowerDetails
         loan_amount : Decimal
-        --term : enum ???
         term : Int
-        --interest rate : enum ??
+        interest_rate : Decimal
     where
         observer lender
         signatory borrower
@@ -78,15 +80,12 @@ template ApplyLoan
                 loan_status : Text
             controller lender
             do
-                time <-getTime
-                let newDateTime = toDateUTC time
-                --change 0.025 to interest rate enum
-                let interest_amount = loan_amount * 0.025
+                now <- getTime
+                let newDateTime = toDateUTC now
+                let interest_amount = loan_amount * interest_rate
                 let loan_amount_with_interest = (loan_amount + interest_amount ) 
-                
                 let monthly_payment_required = loan_amount_with_interest /(intToDecimal)term
-                debug $ monthly_payment_required
-
+                
                 create Transactions with payment = 0.0, balance = loan_amount_with_interest, timestamp = newDateTime, ..
                 create LoanAccount with loan_amount = loan_amount, interest = interest_amount, balance = loan_amount_with_interest, monthly_installment = monthly_payment_required, term = term, ..
         choice RejectLoan : ContractId RejectedLoan
@@ -110,10 +109,10 @@ template RejectedLoan
             with
                 loan_amount : Decimal
                 term : Int
+                interest_rate : Decimal
             controller borrower
             do
-                --change 0.025 to interest rate enum
-                let monthly_payment_required = (loan_amount * 0.025)/(intToDecimal)term
+                let monthly_payment_required = (loan_amount * interest_rate)/(intToDecimal)term
                 create ApplyLoan with ..    
 
 template Transactions
