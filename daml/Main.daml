@@ -40,7 +40,7 @@ setup = script do
     kali_details <- submit gcash do exerciseCmd kali_LoanAccount GetBorrowerDetails
     debug $ "Kali Details " <> show (kali_details)
     
-    -- bert pays partial amount of his loan
+    -- happy path: bert pays partial amount of his loan
     bert_LoanAccount <- submit bert do exerciseCmd bert_LoanAccount Pay with amount = 500.0
 
     -- unhappy path: kali pays invalid amount of her loan 
