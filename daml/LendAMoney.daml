@@ -11,7 +11,7 @@ data BorrowerDetails = BorrowerDetails
         address : Text
         mobile_number : Text
         email : Text
-        marital_status : Text
+        marital_status : Optional Text
         monthly_salary : Decimal
         job_status : Text
         company_name : Text
@@ -21,7 +21,12 @@ template LoanAccount
     with
         lender : Party
         borrower : Party
+        loan_amount : Decimal
+        interest : Decimal
         balance : Decimal
+        term : Int
+        monthly_installment : Decimal
+        
         loan_status : Text
         details : BorrowerDetails
     where
@@ -40,20 +45,20 @@ template LoanAccount
                 amount : Decimal
             controller borrower
             do
-                assertMsg "Exceeds the loanable amount." ( amount > details.monthly_salary )
+                assertMsg "Exceeds the loanable amount." ( balance > details.monthly_salary )
                 time <- getTime
                 let newDateTime = toDateUTC time
-                create Transactions with credit = amount, balance = balance + amount, timestamp = newDateTime, ..
+                create Transactions with payment = amount, balance = balance + amount, timestamp = newDateTime, ..
                 create LoanAccount with balance = balance + amount, ..         
         choice Pay: LoanAccountId
             with
                 amount : Decimal
             controller borrower
             do 
-                assertMsg "Invalid payment" (amount >= 0.0)
+                assertMsg "Invalid payment" (amount > 0.0)
                 time <- getTime
                 let newDateTime = toDateUTC time
-                create Transactions with credit = amount, balance = balance - amount, timestamp = newDateTime, ..
+                create Transactions with payment = amount, balance = balance - amount, timestamp = newDateTime, ..
                 create LoanAccount with balance = balance - amount, ..         
 template ApplyLoan
     with
@@ -61,10 +66,13 @@ template ApplyLoan
         lender : Party
         details : BorrowerDetails
         loan_amount : Decimal
+        --term : enum ???
+        term : Int
+        --interest rate : enum ??
     where
         observer lender
         signatory borrower
-        ensure loan_amount < details.monthly_salary
+        ensure loan_amount > 0.0
         choice ApproveLoan : LoanAccountId
             with
                 loan_status : Text
@@ -72,8 +80,15 @@ template ApplyLoan
             do
                 time <-getTime
                 let newDateTime = toDateUTC time
-                create Transactions with credit = loan_amount, balance = loan_amount, timestamp = newDateTime, ..
-                create LoanAccount with balance = loan_amount, ..
+                --change 0.025 to interest rate enum
+                let interest_amount = loan_amount * 0.025
+                let loan_amount_with_interest = (loan_amount + interest_amount ) 
+                
+                let monthly_payment_required = loan_amount_with_interest /(intToDecimal)term
+                debug $ monthly_payment_required
+
+                create Transactions with payment = 0.0, balance = loan_amount_with_interest, timestamp = newDateTime, ..
+                create LoanAccount with loan_amount = loan_amount, interest = interest_amount, balance = loan_amount_with_interest, monthly_installment = monthly_payment_required, term = term, ..
         choice RejectLoan : ContractId RejectedLoan
             with
                 loan_status : Text
@@ -94,8 +109,11 @@ template RejectedLoan
         choice ReapplyLoan : ContractId ApplyLoan
             with
                 loan_amount : Decimal
+                term : Int
             controller borrower
             do
+                --change 0.025 to interest rate enum
+                let monthly_payment_required = (loan_amount * 0.025)/(intToDecimal)term
                 create ApplyLoan with ..    
 
 template Transactions
@@ -103,7 +121,7 @@ template Transactions
         timestamp : Date
         lender : Party
         borrower : Party
-        credit : Decimal
+        payment : Decimal
         balance : Decimal
     where
         ensure lender /= borrower

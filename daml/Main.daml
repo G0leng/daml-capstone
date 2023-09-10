@@ -5,16 +5,33 @@ import Daml.Script
 
 setup : Script ()
 setup = script do
--- lender_setup_begin
-gcash <- allocatePartyWithHint "GCash" (PartyIdHint "GCash")
-gcashId <- validateUserId "gcash"
-createUser (User gcashId (Some gcash)) [CanActAs gcash]
---borrower_setup_begin
-bert <- allocatePartyWithHint "Bert Ing" (PartyIdHint "Bert")
-kali <- allocatePartyWithHint "Kali Bebe" (PartyIdHint "Kali")
-bertId <- validateUserId "bert"
-kaliId <- validateUserId "kali"
-createUser (User bertId (Some bert)) [CanActAs bert]
-createUser (User kaliId (Some kali)) [CanActAs kali]
+    -- lender_setup_begin
+    gcash <- allocatePartyWithHint "GCash" (PartyIdHint "GCash")
+    gcashId <- validateUserId "gcash"
+    createUser (User gcashId (Some gcash)) [CanActAs gcash]
+    --borrower_setup_begin
+    bert <- allocatePartyWithHint "Bert Ing" (PartyIdHint "Bert")
+    kali <- allocatePartyWithHint "Kali Bebe" (PartyIdHint "Kali")
+    bertId <- validateUserId "bert"
+    kaliId <- validateUserId "kali"
+    createUser (User bertId (Some bert)) [CanActAs bert]
+    createUser (User kaliId (Some kali)) [CanActAs kali]
 
-pure()
+    --happy path: bert apply for a loan and approved
+    let bert_details = BorrowerDetails with name = "Bert Ing", address = "Colina Verdes SJDM Bulacan, Philippines", mobile_number = "09688811111", email = "bert@gmail.com", marital_status = Some "single", monthly_salary = 10000.00, job_status = "fulltime", company_name = "Getli Inc"
+    bert_ApplyLoan <- submit bert do createCmd ApplyLoan with borrower = bert, lender = gcash, loan_amount = 5000.00, term = 12, details = bert_details
+    bert_LoanAccount <- submit gcash do exerciseCmd bert_ApplyLoan ApproveLoan with loan_status = "Approve"
+
+    --unhappy path: kali apply for a loan and exceeds the allowable amount
+    let kali_details = BorrowerDetails with name = "Kali Bebe", address = "Lagro, Quezon City, Philippines", mobile_number = "09688811222", email = "kali@gmail.com", marital_status = Some "single", monthly_salary = 15000.00, job_status = "contractual", company_name = "Lodi International"
+    submitMustFail kali do createCmd ApplyLoan with borrower = kali, lender = gcash, loan_amount = 0.00, term = 0, details = kali_details
+    kali_ApplyLoan <- submit kali do createCmd ApplyLoan with borrower = kali, lender = gcash, loan_amount =21000.00, term = 24, details = kali_details
+    gcash_RejectedLoan <- submit gcash do exerciseCmd kali_ApplyLoan RejectLoan with loan_status = "Rejected", reason = "Loanable amount cannot exceed the monthly salary"
+    
+    --kali reapply for loan with the amount of less than her monthly salary
+    kali_ApplyLoan <- submit kali do exerciseCmd gcash_RejectedLoan ReapplyLoan with loan_amount = 12000.00, term = 12
+    kali_LoanAccount <- submit gcash do exerciseCmd kali_ApplyLoan ApproveLoan with loan_status = "Approve"
+
+    -- bert pays partial amount of his loan
+    bert_LoanAccount <- submit bert do exerciseCmd bert_LoanAccount Pay with amount = 500.0
+    pure()
